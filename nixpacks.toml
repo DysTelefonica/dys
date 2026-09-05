@@ -1,0 +1,12 @@
+[]
+steps:
+  - type: nixpkgs
+    channel: nixpkgs:unstable
+    packages:
+      - go_1_25
+  - type: build
+    command: |
+      go build -trimpath -ldflags='-s -w' -o /build/output/dys ./cmd/dys
+  - type: run
+    command: /build/output/dys
+EOF
