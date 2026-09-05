@@ -1,6 +1,6 @@
 [phases.setup]
 nixpkgs.archive = "nixpkgs:unstable"
-nixpkgs.pkgs = ["go_1_25"]
+nixpkgs.pkgs = ["go_1_22"]
 
 [phases.build]
 cmds = ["go build -trimpath -ldflags='-s -w' -o /build/output/dys ./cmd/dys"]
