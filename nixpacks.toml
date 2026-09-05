@@ -1,12 +1,9 @@
-[]
-steps:
-  - type: nixpkgs
-    channel: nixpkgs:unstable
-    packages:
-      - go_1_25
-  - type: build
-    command: |
-      go build -trimpath -ldflags='-s -w' -o /build/output/dys ./cmd/dys
-  - type: run
-    command: /build/output/dys
-EOF
+[phases.setup]
+nixpkgs.archive = "nixpkgs:unstable"
+nixpkgs.pkgs = ["go_1_25"]
+
+[phases.build]
+cmds = ["go build -trimpath -ldflags='-s -w' -o /build/output/dys ./cmd/dys"]
+
+[start]
+cmd = "/build/output/dys"
