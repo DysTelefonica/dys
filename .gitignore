@@ -1,0 +1,16 @@
+# Build artifacts
+/dys
+/dys.exe
+/*.test
+/coverage.out
+
+# Go workspace
+/vendor/
+go.work
+go.work.sum
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
