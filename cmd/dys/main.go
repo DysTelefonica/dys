@@ -87,6 +87,14 @@ func runSkillsList(args []string, stdout, stderr *os.File) error {
 	if err != nil {
 		return err
 	}
+	if opts.help {
+		fmt.Fprintln(stdout, `Usage: dys skills list [--tier X,Y] [--json] [--cwd DIR]
+
+Lists every SKILL.md found under skills/ in --cwd (default: cwd).
+With --tier, filters by metadata.tiers intersection. Comma-separated
+list supported. With --json, emits a JSON document instead of TSV.`)
+		return nil
+	}
 
 	roots, err := resolveSkillRoots(cwd)
 	if err != nil {
@@ -150,6 +158,7 @@ func runSkillsTUI(args []string, stdout, stderr *os.File) error {
 type listOpts struct {
 	tiers []string
 	json  bool
+	help  bool
 }
 
 func parseSkillsListArgs(args []string) (string, *listOpts, error) {
@@ -158,10 +167,7 @@ func parseSkillsListArgs(args []string) (string, *listOpts, error) {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--help", "-h":
-			// --help is handled by the caller; return the cwd as-is and
-			// leave opts empty so callers can ignore --help without
-			// dereferencing nil.
-			continue
+			opts.help = true
 		case "--cwd":
 			if i+1 >= len(args) {
 				return "", nil, fmt.Errorf("--cwd requires a value")
