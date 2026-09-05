@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
 
 # Build stage
-# Go 1.22 (LTS) for arm64 toolchain availability on the Coolify VPS.
-# 1.25 lacks an arm64 build in the upstream toolchain cache at the time
-# of writing (2026-09); bumping back when 1.25+ ships arm64.
-FROM golang:1.22-alpine AS build
+# Go 1.24 for arm64 toolchain availability on the Coolify VPS. bubbletea
+# 1.3.x requires go >= 1.24, so 1.22 LTS (used previously) breaks the
+# module graph at 'go build' time.
+FROM golang:1.24-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
