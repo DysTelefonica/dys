@@ -110,7 +110,13 @@ license: Apache-2.0
 
 ## Activación
 
-<cuando cargar>
+Cargue esta skill cuando:
+- Vaya a crear una skill nueva en `DysTelefonica/team-skills/skills/<nombre>/`.
+- Vaya a actualizar el frontmatter o el cuerpo de una skill existente.
+- Necesite bumpear `metadata.version` o cambiar `metadata.tiers` o
+  `metadata.auto_invoke` de una skill ya publicada.
+- Audite el ciclo de vida completo (crear / actualizar / propagar) de
+  una skill del catálogo.
 
 ## Lo que es / Lo que no es
 
@@ -186,6 +192,106 @@ Salida esperada: tu skill en la lista. Si no aparece, verifique:
 - ¿`metadata.tiers` o `metadata.scope` incluyen tu tier?
 - ¿El reconciler de team-skills corrió sin error?
 
+## Actualizar una skill existente
+
+Cuando cambie el comportamiento, el contrato o el frontmatter de una
+skill ya publicada, siga este flujo de 4 pasos. La diferencia clave con
+el flujo de creación: la skill ya existe, así que NO recrea el
+directorio ni el archivo; solo edita, bumpea version, valida, regenera
+auto-invoke.
+
+### Paso U-1 — Decidir qué cambia
+
+| Cambio | Acción |
+|---|---|
+| Bug en el contrato / output | Bump `metadata.version` (semver patch: 1.0.0 → 1.0.1). |
+| Nueva feature / cambio breaking | Bump minor (1.0.x → 1.1.0). |
+| Cambio de tier (e.g. añadir `dys`) | Bump patch + actualizar `metadata.tiers`. |
+| Cambio en `auto_invoke` phrases | Bump patch + actualizar la lista. |
+| Cambio cosmético (typo, formato) | Bump patch solo si cambia el contrato visible. |
+| Refactor de la prosa (no funcional) | NO bump; bumpee solo cuando la prosa afecte el contrato. |
+
+### Paso U-2 — Editar el SKILL.md
+
+Edite el archivo existente, sin recrear el directorio:
+
+```bash
+cd DysTelefonica/team-skills
+$EDITOR skills/<nombre>/SKILL.md
+# Edite el frontmatter (cambie `metadata.version`, `metadata.last_verified`,
+# `metadata.tiers`, `metadata.auto_invoke` o el cuerpo del skill).
+```
+
+Reglas duras:
+- `metadata.last_verified` DEBE ser la fecha ISO del día del commit
+  (no la fecha del cambio original).
+- `metadata.version` DEBE bumpearse en cada cambio visible.
+- NO cambie el `name` (es el identificador único; cambiarlo rompe
+  discoverability).
+- NO cambie la convención `description` (sigue empezando con
+  `Trigger: <keywords>.`).
+
+### Paso U-3 — Validar localmente
+
+Igual que para skills nuevas:
+
+```bash
+bash testing/suites/frontmatter-validator/validate-frontmatter.sh skills
+```
+
+Salida esperada: `OK: N SKILL.md files pass all checks`. Si el SKILL.md
+modificado no pasa, lea cuál campo falta y arregle.
+
+### Paso U-4 — Commit, push, regenerar auto-invoke, confirmar
+
+Igual que para skills nuevas, pero el mensaje de commit debe reflejar
+que es una actualización:
+
+```bash
+cd DysTelefonica/team-skills
+git add skills/<nombre>/SKILL.md
+git commit -m "fix(<scope>): <short description of the change>
+
+<old behaviour, new behaviour, evidence>"
+git push origin main
+```
+
+Después:
+
+```bash
+cd DysTelefonica/team-skills
+bash testing/suites/refresh-personal-symlinks/refresh-personal-symlinks.sh overlays
+```
+
+Y desde `dys`:
+
+```bash
+go build -o dys ./cmd/dys
+./dys skills list --cwd ../team-skills --tier <su-tier> | grep <nombre>
+```
+
+Salida esperada: la versión nueva en la columna `VERSION`. Si la
+versión no cambió, el push de auto-invoke no se enteró del update.
+
+## Tabla de puertas (update)
+
+| Condición | Acción |
+|---|---|
+| Cambia el contrato visible de la skill | Bumpea `metadata.version` antes de commitear. |
+| Cambia `metadata.tiers` o `metadata.auto_invoke` | Edite, bumpee version, regenere auto-invoke, confirme con `dys`. |
+| Cambia el nombre del directorio (`skills/<nombre>/`) | NO LO HAGA. El nombre está acoplado al frontmatter `name` y al `Filter` del binario. En su lugar, agregue un `redirect` (en el `metadata.tiers` del catálogo o en una skill de migration). |
+| Cambia `metadata.last_verified` a una fecha pasada | El reconciler no falla pero la tabla auto-invoke lo refleja. Use la fecha del día. |
+
+## Antipatrones (update)
+
+| Síntoma | Solución |
+|---|---|
+| Update commiteado sin bumpear `metadata.version` | El push de auto-invoke no se enterá del cambio. Use semver discipline. |
+| Update commiteado sin actualizar `metadata.last_verified` | El validador puede pasar pero el catálogo se queda con fecha vieja. Use fecha ISO del día. |
+| Update commiteado sin regenerar la tabla auto-invoke | Los runtimes muestran el comportamiento viejo hasta que se corra el reconciler. |
+| Renombrar el directorio de la skill | Rompe el `Filter` de `dys`. En su lugar cree una skill de migration. |
+| Update commiteado sin `go test ./...` | El binario `dys` puede romperse (poco probable pero posible si la skill expone algo al `Filter`). |
+
 ## Tabla de puertas
 
 | Condición | Acción |
@@ -209,6 +315,8 @@ Salida esperada: tu skill en la lista. Si no aparece, verifique:
 
 ## Contrato de salida
 
+### Crear
+
 | Artefacto | Ubicación | Formato |
 |---|---|---|
 | Skill en el catálogo | `DysTelefonica/team-skills/skills/<nombre>/SKILL.md` | Frontmatter YAML + Markdown. |
@@ -216,7 +324,18 @@ Salida esperada: tu skill en la lista. Si no aparece, verifique:
 | Index del catálogo | `DysTelefonica/team-skills/.atl/skill-registry.md` | Markdown con tabla de skills. |
 | Binario `dys` | `DysTelefonica/dys` | `dys skills list --tier <tier>`. |
 
+### Actualizar
+
+| Artefacto | Cambio esperado | Comando |
+|---|---|---|
+| `SKILL.md` (frontmatter) | `metadata.version` bumpeada, `metadata.last_verified` actualizado, `metadata.tiers` / `metadata.auto_invoke` ajustados | Editor + `validate-frontmatter.sh`. |
+| Tabla «Auto-invoke» | Recalculada desde el frontmatter nuevo | `bash refresh-personal-symlinks.sh overlays`. |
+| `CHANGELOG.md` (team-skills) | Entrada bajo `[Unreleased]` con el delta | Editor + `git commit`. |
+| Binario `dys` | Compila con el binario deployable actualizado | `go build ./cmd/dys`. |
+
 ## Revisor checklist
+
+### Crear
 
 - [ ] `bash testing/suites/frontmatter-validator/validate-frontmatter.sh skills` pasa.
 - [ ] Las suites de team-skills pasan: `for s in testing/suites/*/test-*.sh; do bash "$s"; done`.
@@ -224,6 +343,15 @@ Salida esperada: tu skill en la lista. Si no aparece, verifique:
 - [ ] El `CHANGELOG.md` de team-skills menciona la nueva skill bajo `[Unreleased]`.
 - [ ] El reconciler de team-skills emite `PHASE_DONE` por fase.
 - [ ] La tabla «Auto-invoke» de cada target incluye la skill en una fila.
+
+### Actualizar
+
+- [ ] `metadata.version` bumpeada según semver (patch / minor / major).
+- [ ] `metadata.last_verified` actualizada a la fecha ISO del día.
+- [ ] El validador de frontmatter pasa después del cambio.
+- [ ] El reconciler de team-skills regeneró la tabla «Auto-invoke».
+- [ ] `dys skills list` muestra la nueva versión de la skill.
+- [ ] El `CHANGELOG.md` menciona el cambio bajo `[Unreleased]`.
 
 ## Navegación
 
