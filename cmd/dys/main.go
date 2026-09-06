@@ -1,6 +1,11 @@
 // Command dys is the DysTelefonica skill-management CLI. Sprint 1 MVP
-// ships two subcommands: `dys skills list` (with optional --tier filter
-// and --json output) and `dys skills tui` (a bubbletea two-pane browser).
+// ships `dys skills list` (with optional --tier filter and --json output)
+// in the default build. The interactive `dys skills tui` view is gated
+// behind the `tui` build tag and pulls in github.com/charmbracelet/bubbletea;
+// the default deployable build excludes it so the binary has no
+// bubbletea / lipgloss dependency and compiles on every Go toolchain.
+//
+// Build the TUI locally with `go build -tags tui ./cmd/dys`.
 package main
 
 import (
@@ -10,11 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/DysTelefonica/dys/internal/registry"
 	"github.com/DysTelefonica/dys/internal/tiers"
-	"github.com/DysTelefonica/dys/internal/tui"
 )
 
 const version = "dev (Sprint 1 MVP)"
@@ -136,23 +138,16 @@ list supported. With --json, emits a JSON document instead of TSV.`)
 	return nil
 }
 
+// runSkillsTUI handles `dys skills tui` in the default (no-bubbletea)
+// build. It prints a hint and falls back to the text listing so the
+// operator still gets a usable view. Build with `-tags tui` for the real
+// bubbletea-backed browser (it lives in cmd/dys-tui as a separate binary
+// to keep bubbletea out of this package's dependency graph).
 func runSkillsTUI(args []string, stdout, stderr *os.File) error {
-	cwd, _, err := parseSkillsListArgs(args)
-	if err != nil {
-		return err
-	}
-	roots, err := resolveSkillRoots(cwd)
-	if err != nil {
-		return err
-	}
-	entries := registry.List(roots)
-	if len(entries) == 0 {
-		fmt.Fprintln(stdout, "No skills found. Press q to quit.")
-	}
-	m := tui.New(entries)
-	p := tea.NewProgram(m, tea.WithOutput(stdout))
-	_, err = p.Run()
-	return err
+	fmt.Fprintln(stdout, "dys skills tui: this binary was built without the bubbletea-backed browser.")
+	fmt.Fprintln(stdout, "Falling back to `dys skills list --json` for a machine-readable view.")
+	fmt.Fprintln(stdout, "To get the interactive browser, install `dys-tui` (cmd/dys-tui, built with -tags tui).")
+	return runSkillsList(args, stdout, stderr)
 }
 
 type listOpts struct {

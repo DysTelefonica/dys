@@ -1,3 +1,5 @@
+//go:build tui
+
 // Package tui implements the bubbletea-based Sprint 1 MVP for
 // `dys skills tui`. The MVP shows two views: a Tiers view that counts
 // skills per tier and lists custom tiers, and a Skills view that renders
