@@ -12,10 +12,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/dys ./cmd/dys
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
 COPY --from=build /out/dys /usr/local/bin/dys
-# ENTRYPOINT keeps the container alive (Coolify restarts on exit != 0,
-# so a foreground binary that exits would cause a restart loop). The
-# healthcheck runs `dys version` from /artifacts (the Coolify build
-# output directory) and proves the binary works. Once the deployment
-# is stable we can revert to ENTRYPOINT ["/usr/local/bin/dys"] CMD
-# ["version"] in a follow-up.
-ENTRYPOINT ["tail", "-f", "/dev/null"]
+# ENTRYPOINT runs `dys version` once (to prove the binary works and
+# surface any startup error to the container log) and then `exec tail
+# -f /dev/null` so the container's PID 1 stays alive forever (Coolify
+# restarts the container if PID 1 exits, even with exit code 0).
+ENTRYPOINT ["/bin/sh", "-c", "dys version && exec tail -f /dev/null"]
