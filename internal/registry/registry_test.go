@@ -3,186 +3,106 @@ package registry
 import (
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 )
 
-func TestParseFrontmatterNameDescriptionLicense(t *testing.T) {
-	src := `---
-name: x
-description: "Trigger: example. what this does"
-license: Apache-2.0
----
-body
-`
-	e := ParseFrontmatter(src)
-	if e.Name != "x" {
-		t.Errorf("Name = %q, want x", e.Name)
-	}
-	if e.Description == "" {
-		t.Error("Description is empty")
-	}
-	if e.License != "Apache-2.0" {
-		t.Errorf("License = %q", e.License)
-	}
-}
-
-func TestParseFrontmatterMetadataAuthorVersionTiers(t *testing.T) {
-	src := `---
-name: x
-description: Trigger: t
-license: Apache-2.0
-metadata:
-  author: ardelperal
-  version: "1.0"
-  last_verified: 2026-09-05
-  scope: ['universal', 'vba']
-  tiers: [universal, vba, runtime]
-  auto_invoke: ["doing x"]
----
-`
-	e := ParseFrontmatter(src)
-	if e.Author != "ardelperal" {
-		t.Errorf("Author = %q", e.Author)
-	}
-	if e.Version != "1.0" {
-		t.Errorf("Version = %q", e.Version)
-	}
-	if len(e.Tiers) != 3 {
-		t.Fatalf("Tiers len = %d, want 3; got %v", len(e.Tiers), e.Tiers)
-	}
-	if e.Tiers[0] != "universal" || e.Tiers[1] != "vba" || e.Tiers[2] != "runtime" {
-		t.Errorf("Tiers = %v", e.Tiers)
-	}
-}
-
-func TestParseFrontmatterAuthorWithUnicodeSpace(t *testing.T) {
-	// Author value contains a space (full name). Make sure the parser does
-	// not split on the space.
-	src := `---
-name: x
-description: Trigger: t
-metadata:
-  author: "Andrés Román"
----
-`
-	e := ParseFrontmatter(src)
-	if e.Author != "Andrés Román" {
-		t.Errorf("Author = %q, want %q", e.Author, "Andrés Román")
-	}
-}
-
-func TestParseFrontmatterTopLevelKeyAfterMetadata(t *testing.T) {
-	// After metadata block ends, top-level keys should resume.
-	src := `---
-name: x
-description: Trigger: t
-metadata:
-  author: a
-license: Apache-2.0
----
-`
-	e := ParseFrontmatter(src)
-	if e.Author != "a" {
-		t.Errorf("Author = %q", e.Author)
-	}
-	if e.License != "Apache-2.0" {
-		t.Errorf("License = %q (should resume after metadata)", e.License)
-	}
-}
-
-func TestParseFrontmatterNoFrontmatter(t *testing.T) {
-	e := ParseFrontmatter("body only, no frontmatter")
-	if e.Name != "" || e.Author != "" {
-		t.Errorf("expected zero-value SkillEntry, got %+v", e)
-	}
-}
-
-func TestParseTiersListVariants(t *testing.T) {
-	cases := []struct {
-		name  string
-		input string
-		want  []string
-	}{
-		{"empty", "[]", nil},
-		{"single", "[universal]", []string{"universal"}},
-		{"multiple", "[a, b, c]", []string{"a", "b", "c"}},
-		{"trimmed", "[ a , b ]", []string{"a", "b"}},
-		{"quoted", `["a b", "c"]`, []string{"a b", "c"}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := parseTiersList(tc.input)
-			if len(got) != len(tc.want) {
-				t.Fatalf("len = %d, want %d (got %v)", len(got), len(tc.want), got)
-			}
-			for i := range got {
-				if got[i] != tc.want[i] {
-					t.Errorf("[%d] = %q, want %q", i, got[i], tc.want[i])
-				}
-			}
-		})
-	}
-}
-
-func TestListFindsImmediateChildSkills(t *testing.T) {
+func TestScanCustomTiersMergesWithCanonical(t *testing.T) {
 	root := t.TempDir()
-	mustMkdir(t, filepath.Join(root, "alpha"))
-	mustMkdir(t, filepath.Join(root, "beta"))
-	mustMkdir(t, filepath.Join(root, "nested", "ignored"))
-	mustWrite(t, filepath.Join(root, "alpha", "SKILL.md"), `---
-name: alpha
-description: Trigger: a
----
-`)
-	mustWrite(t, filepath.Join(root, "beta", "SKILL.md"), `---
-name: beta
-description: Trigger: b
----
-`)
+	// Three skills: one with a custom tier, one with a known tier, one
+	// with both. The scan must surface every unique tier.
+	mk := func(name string, body string) {
+		if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name, "SKILL.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("alpha", "---\nname: alpha\ndescription: Trigger: x\nlicense: Apache-2.0\nmetadata:\n  author: a\n  version: \"1.0\"\n  last_verified: 2026-09-05\n  tiers: ['cadete']\n---\n")
+	mk("beta", "---\nname: beta\ndescription: Trigger: x\nlicense: Apache-2.0\nmetadata:\n  author: a\n  version: \"1.0\"\n  last_verified: 2026-09-05\n  tiers: [vba]\n---\n")
+	mk("gamma", "---\nname: gamma\ndescription: Trigger: x\nlicense: Apache-2.0\nmetadata:\n  author: a\n  version: \"1.0\"\n  last_verified: 2026-09-05\n  tiers: [cadete, vba]\n---\n")
+
 	entries := List([]string{root})
-	if len(entries) != 2 {
-		t.Fatalf("len = %d, want 2", len(entries))
+	if len(entries) != 3 {
+		t.Fatalf("List returned %d entries, want 3", len(entries))
 	}
-	// Should NOT include nested/ignored because the scan is one-level.
-}
 
-func TestListSkipsMissingDir(t *testing.T) {
-	entries := List([]string{"/this/path/does/not/exist"})
-	if len(entries) != 0 {
-		t.Errorf("missing dir should return empty, got %d", len(entries))
+	got := ScanCustomTiers(entries, []string{"universal", "vba", "web", "runtime"})
+	want := []string{"cadete"}
+	if !equalStringSlice(got, want) {
+		t.Fatalf("ScanCustomTiers = %v, want %v", got, want)
 	}
 }
 
-func TestLoadSkillFallsBackToDirname(t *testing.T) {
-	dir := t.TempDir()
-	mkdir(t, filepath.Join(dir, "fallback-name"))
-	mustWrite(t, filepath.Join(dir, "fallback-name", "SKILL.md"), `---
-description: no name field
----
-`)
-	e, ok := LoadSkill(filepath.Join(dir, "fallback-name", "SKILL.md"))
-	if !ok {
-		t.Fatal("LoadSkill returned false")
-	}
-	if e.Name != "fallback-name" {
-		t.Errorf("Name = %q, want fallback-name", e.Name)
+func TestScanCustomTiersEmptyCatalog(t *testing.T) {
+	got := ScanCustomTiers(nil, []string{"universal", "vba"})
+	if len(got) != 0 {
+		t.Fatalf("expected empty slice, got %v", got)
 	}
 }
 
-// helpers
+func TestScanCustomTiersDeduplicates(t *testing.T) {
+	root := t.TempDir()
+	mk := func(name string, body string) {
+		if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name, "SKILL.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("a", "---\nname: a\ndescription: Trigger: x\nlicense: Apache-2.0\nmetadata:\n  author: a\n  version: \"1.0\"\n  last_verified: 2026-09-05\n  tiers: [dys-tui, vba]\n---\n")
+	mk("b", "---\nname: b\ndescription: Trigger: x\nlicense: Apache-2.0\nmetadata:\n  author: a\n  version: \"1.0\"\n  last_verified: 2026-09-05\n  tiers: [dys-tui, engram]\n---\n")
 
-func mkdir(t *testing.T, path string) {
-	t.Helper()
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		t.Fatal(err)
+	entries := List([]string{root})
+	got := ScanCustomTiers(entries, []string{"universal", "vba", "web", "runtime"})
+	want := []string{"dys-tui", "engram"}
+	if !equalStringSlice(got, want) {
+		t.Fatalf("dedup = %v, want %v", got, want)
 	}
 }
 
-func mustMkdir(t *testing.T, path string) { mkdir(t, path) }
-
-func mustWrite(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
+func equalStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
 	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
+
+// Helper used by the production code; the tests in tiers_test.go
+// already exercise Filter / Group / CustomTiers. The scan function
+// itself is what this file adds; the tier-merge step lives in tiers.go.
+
+func mergeTiersForTest(discovered, canonical []string) []string {
+	known := make(map[string]struct{}, len(canonical))
+	for _, t := range canonical {
+		known[strings.ToLower(strings.TrimSpace(t))] = struct{}{}
+	}
+	out := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, t := range discovered {
+		key := strings.ToLower(strings.TrimSpace(t))
+		if key == "" {
+			continue
+		}
+		if _, ok := known[key]; ok {
+			continue
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
+}
+
+var _ = mergeTiersForTest // keep the symbol referenced

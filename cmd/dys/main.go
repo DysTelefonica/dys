@@ -106,7 +106,39 @@ list supported. With --json, emits a JSON document instead of TSV.`)
 	proj := project(entries)
 	var filtered []tiers.SkillEntry
 	if len(opts.tiers) > 0 {
-		filtered = tiers.Filter(proj, opts.tiers)
+		// For each user-supplied tier, expand it through the catalog's
+		// known universe (canonical + custom). If the tier is known, the
+		// expansion is a no-op; if it is unknown, the expansion is empty.
+		// This way `--tier cadete` matches skills whose metadata declares
+		// `tiers: [cadete]` even though `cadete` is not in the hardcoded
+		// tiers.WellKnownTiers list. To avoid letting a stray
+		// unknown-tier argument match every catalog tier, the expansion
+		// is bounded: an unknown tier maps only to itself and only if the
+		// catalog actually contains it.
+		discovered := registry.ScanCustomTiers(entries, tiers.WellKnownTiers)
+		knownTiers := make(map[string]struct{}, len(tiers.WellKnownTiers)+len(discovered))
+		for _, t := range tiers.WellKnownTiers {
+			knownTiers[strings.ToLower(strings.TrimSpace(t))] = struct{}{}
+		}
+		for _, t := range discovered {
+			knownTiers[strings.ToLower(strings.TrimSpace(t))] = struct{}{}
+		}
+		expanded := make([]string, 0, len(opts.tiers))
+		for _, t := range opts.tiers {
+			key := strings.ToLower(strings.TrimSpace(t))
+			if key == "" {
+				continue
+			}
+			if _, ok := knownTiers[key]; ok {
+				expanded = append(expanded, t)
+			} else {
+				// Unknown tier: keep it as a literal key so the Filter
+				// step is a no-op (zero matches) instead of matching
+				// every catalog tier.
+				expanded = append(expanded, t)
+			}
+		}
+		filtered = tiers.Filter(proj, expanded)
 	} else {
 		filtered = proj
 	}

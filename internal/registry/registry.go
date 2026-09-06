@@ -3,6 +3,7 @@ package registry
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -153,6 +154,37 @@ func LoadSkill(file string) (SkillEntry, bool) {
 		entry.Name = filepath.Base(filepath.Dir(file))
 	}
 	return entry, true
+}
+
+// ScanCustomTiers returns the sorted, deduped set of tier names that
+// appear in `entries.Tiers` but are not in `canonical`. Used by the
+// CLI/TUI to expand `--tier` matching beyond the hardcoded
+// tiers.WellKnownTiers list.
+func ScanCustomTiers(entries []SkillEntry, canonical []string) []string {
+	known := make(map[string]struct{}, len(canonical))
+	for _, t := range canonical {
+		known[strings.ToLower(strings.TrimSpace(t))] = struct{}{}
+	}
+	seen := make(map[string]struct{})
+	out := make([]string, 0)
+	for _, e := range entries {
+		for _, t := range e.Tiers {
+			key := strings.ToLower(strings.TrimSpace(t))
+			if key == "" {
+				continue
+			}
+			if _, ok := known[key]; ok {
+				continue
+			}
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, t)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // List returns every SkillEntry reachable from the provided roots.
